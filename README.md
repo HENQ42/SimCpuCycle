@@ -12,5 +12,7 @@ construir assembly
 
 rodar binário
 ```bash
-./cpu_sim run os.bin
+./cpu_sim run os.bin -q
 ```
+
+**-q** ou **--quiet** são formas de esconder os logs de Cache, então retire para obter tudo!
