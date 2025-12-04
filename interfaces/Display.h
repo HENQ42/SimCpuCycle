@@ -35,7 +35,7 @@ public:
             case 1: // FLUSH (Imprimir)
                 if (!internalBuffer.empty())
                 {
-                    std::cout << Color::CYAN << "[DISPLAY]" << internalBuffer << Color::RESET << std::endl
+                    std::cout << Color::CYAN << "[DISPLAY] " << internalBuffer << Color::RESET << std::endl
                               << std::flush;
                     internalBuffer.clear(); // Limpa após mostrar
                 }

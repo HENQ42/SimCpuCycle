@@ -4,6 +4,7 @@
 #include <iostream>
 #include <iomanip>
 #include "Colors.h"
+#include "Stats.h" // Necessário para contabilizar métricas
 
 struct CacheLine
 {
@@ -17,13 +18,15 @@ class Cache : public IMemoryDevice
 private:
     IMemoryDevice *ramReal;
     std::vector<CacheLine> lines;
+    Stats *stats; // Ponteiro para o coletor de métricas
 
     size_t numLines;  // Quantas linhas a cache tem (ex: 8)
     size_t blockSize; // Quantas palavras cabem numa linha (ex: 4)
 
 public:
-    Cache(IMemoryDevice *ram, size_t linesCount = 8, size_t wordsPerLine = 4)
-        : ramReal(ram), numLines(linesCount), blockSize(wordsPerLine)
+    // Atualizado construtor para receber Stats*
+    Cache(IMemoryDevice *ram, Stats *s, size_t linesCount = 8, size_t wordsPerLine = 4)
+        : ramReal(ram), stats(s), numLines(linesCount), blockSize(wordsPerLine)
     {
 
         // Inicializa as linhas com vetores vazios do tamanho correto
@@ -55,12 +58,23 @@ public:
         // --- VERIFICAÇÃO (HIT/MISS) ---
         if (line.valid && line.tag == tag)
         {
+            // [METRICA] Hit
+            if (stats)
+                stats->cacheHits++;
+
             // [HIT] O bloco inteiro já está aqui!
             std::cout << Color::GREEN << "[CACHE HIT]  Addr: " << addr << Color::RESET << std::endl;
             return line.dataBlock[offset];
         }
         else
         {
+            // [METRICA] Miss
+            if (stats)
+            {
+                stats->cacheMisses++;
+                stats->busWaitCycles += 10; // Penalidade simulada de latência da RAM
+            }
+
             // [MISS] Precisamos buscar o BLOCO INTEIRO na RAM
             std::cout << Color::RED << "[CACHE MISS] Addr: " << addr
                       << " -> Buscando Bloco [" << (blockAddr * blockSize)

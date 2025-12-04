@@ -1,7 +1,9 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include <unistd.h>
+#include <unistd.h> // Para usleep
+
+// Mantendo o padrão de pastas que você forneceu
 #include "interfaces/Types.h"
 #include "interfaces/Ram.h"
 #include "interfaces/Cache.h"
@@ -11,11 +13,13 @@
 #include "interfaces/CPU.h"
 #include "interfaces/Assembler.h"
 #include "interfaces/Display.h"
+#include "interfaces/Colors.h" // Arquivo de Cores
+#include "interfaces/Stats.h"  // Arquivo de Estatísticas
 
 // --- COMPILADOR (Host) ---
 void build(const std::string &inputTxt, const std::string &outputBin)
 {
-    std::cout << "[BUILD] Compilando " << inputTxt << " para " << outputBin << "..." << std::endl;
+    std::cout << Color::BLUE << Color::BOLD << "[BUILD] Compilando " << inputTxt << " para " << outputBin << "..." << Color::RESET << std::endl;
 
     Assembler assembler;
     std::vector<std::string> sourceCode;
@@ -23,7 +27,7 @@ void build(const std::string &inputTxt, const std::string &outputBin)
 
     if (!file.is_open())
     {
-        std::cerr << "Erro: Arquivo fonte nao encontrado." << std::endl;
+        std::cerr << Color::RED << "Erro: Arquivo fonte nao encontrado." << Color::RESET << std::endl;
         return;
     }
 
@@ -42,33 +46,48 @@ void build(const std::string &inputTxt, const std::string &outputBin)
     {
         outFile.write(reinterpret_cast<const char *>(binary.data()), binary.size() * sizeof(Word));
         outFile.close();
-        std::cout << "[BUILD] Sucesso! Tamanho do firmware: " << binary.size() << " palavras." << std::endl;
+        std::cout << Color::GREEN << "[BUILD] Sucesso! Tamanho do firmware: " << binary.size() << " palavras." << Color::RESET << std::endl;
     }
     else
     {
-        std::cerr << "Erro ao salvar binario." << std::endl;
+        std::cerr << Color::RED << "Erro ao salvar binario." << Color::RESET << std::endl;
     }
 }
 
 // --- MAQUINA VIRTUAL (Target) ---
 void run(const std::string &firmwareFile)
 {
-    std::cout << "[RUN] Iniciando Maquina..." << std::endl;
+    std::cout << Color::BLUE << Color::BOLD << "[RUN] Iniciando Maquina..." << Color::RESET << std::endl;
+    std::cout << "DIGITE AGORA (" << Color::RED << "z" << Color::RESET << " para sair):" << std::endl;
 
-    // 1. Instancia Hardware
+    // 1. Objeto Central de Estatísticas
+    Stats stats;
+
+    // 2. Instancia Hardware (Injetando dependência de Stats)
     Ram ram;
-    Cache cache(&ram, 8);
-    PIC pic;
-    Keyboard keyboard(&pic);
-    Display display;
-    SystemBus bus(&cache, &keyboard, &display);
-    CPU cpu(&bus, &pic);
 
-    // 2. Carrega Firmware do Disco
+    // Cache recebe RAM e Stats
+    Cache cache(&ram, &stats, 8);
+
+    // PIC recebe Stats (para latência de IRQ)
+    PIC pic(&stats);
+
+    // Keyboard recebe PIC e ponteiro para o ciclo atual (para timestamp do IRQ)
+    Keyboard keyboard(&pic, &stats.totalCycles);
+
+    Display display;
+
+    // Barramento conecta tudo
+    SystemBus bus(&cache, &keyboard, &display);
+
+    // CPU recebe Barramento, PIC e Stats
+    CPU cpu(&bus, &pic, &stats);
+
+    // 3. Carrega Firmware do Disco
     std::ifstream binFile(firmwareFile, std::ios::binary | std::ios::ate);
     if (!binFile.is_open())
     {
-        std::cerr << "Erro: Firmware nao encontrado: " << firmwareFile << std::endl;
+        std::cerr << Color::RED << "Erro: Firmware nao encontrado: " << firmwareFile << Color::RESET << std::endl;
         return;
     }
 
@@ -78,16 +97,19 @@ void run(const std::string &firmwareFile)
     std::vector<Word> buffer(sizeBytes / sizeof(Word));
     binFile.read(reinterpret_cast<char *>(buffer.data()), sizeBytes);
 
-    std::cout << "[BOOT] Carregando " << buffer.size() << " instrucoes na Memória Principal." << std::endl;
+    std::cout << Color::BLUE << "[BOOT] Carregando " << buffer.size() << " instrucoes na Memória Principal." << Color::RESET << std::endl;
     ram.loadProgram(buffer);
 
-    // 3. Executa
-    std::cout << "[SYSTEM] Power On." << std::endl;
+    // 4. Executa
+    std::cout << Color::GREEN << Color::BOLD << "[SYSTEM] Power On." << Color::RESET << std::endl;
 
     // Loop Infinito Interativo
     // A simulação roda até que o firmware execute HALT (acionado pelo 'z')
     while (!cpu.isHalted())
     {
+        // Atualiza relógio global para estatísticas
+        stats.totalCycles++;
+
         // 1. Verifica entrada real do terminal
         keyboard.tick();
 
@@ -95,10 +117,16 @@ void run(const std::string &firmwareFile)
         cpu.step();
 
         // 3. Pequena pausa (1ms) para não usar 100% da CPU do seu computador
-        usleep(700000);
+        // 700000 (0.7s) é muito lento para digitação em tempo real.
+        // 1000 (1ms) é fluido.
+        usleep(60000);
     }
 
-    std::cout << "\n[SYSTEM] Shutdown (Comando 'z' recebido ou HALT executado)." << std::endl;
+    std::cout << "\n"
+              << Color::RED << Color::BOLD << "[SYSTEM] Shutdown (Comando 'z' recebido ou HALT executado)." << Color::RESET << std::endl;
+
+    // 5. Imprime Relatório Final
+    stats.printReport();
 }
 
 int main(int argc, char *argv[])

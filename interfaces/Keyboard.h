@@ -6,7 +6,7 @@
 #include <string>
 #include <sys/select.h>
 #include <unistd.h>
-#include <termios.h> // <--- Biblioteca para controlar o terminal
+#include <termios.h> // Biblioteca para controlar o terminal
 
 class Keyboard : public IMemoryDevice
 {
@@ -15,8 +15,13 @@ private:
     std::queue<char> internalBuffer;
     struct termios originalTermios; // Para salvar a config original
 
+    // Ponteiro para o relógio global (para métricas de latência)
+    unsigned long long *globalCycle;
+
 public:
-    Keyboard(PIC *interruptController) : pic(interruptController)
+    // Construtor atualizado para receber o ponteiro de ciclos
+    Keyboard(PIC *interruptController, unsigned long long *cyclePtr)
+        : pic(interruptController), globalCycle(cyclePtr)
     {
         enableRawMode();
     }
@@ -26,31 +31,29 @@ public:
         disableRawMode();
     }
 
-    // --- Configuração do Terminal (A Mágica) ---
+    // --- Configuração do Terminal (Raw Mode) ---
     void enableRawMode()
     {
-        // 1. Pega a configuração atual e salva
+        // 1. Pega a configuração atual
         tcgetattr(STDIN_FILENO, &originalTermios);
 
-        // 2. Cria uma cópia para modificar
+        // 2. Cria cópia
         struct termios raw = originalTermios;
 
-        // 3. Desativa ICANON (Buffer de linha) e ECHO (Letra repetida)
-        // ICANON: Permite ler byte a byte sem Enter
-        // ECHO: Desliga o print automático do Linux (nossa CPU fará o print)
+        // 3. Desativa ICANON (Buffer de linha) e ECHO
         raw.c_lflag &= ~(ICANON | ECHO);
 
-        // 4. Aplica as mudanças
+        // 4. Aplica
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
     }
 
     void disableRawMode()
     {
-        // Restaura o terminal como era antes do programa rodar
+        // Restaura o terminal ao normal ao sair
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &originalTermios);
     }
 
-    // --- O Tick continua quase igual ---
+    // --- Tick do Hardware ---
     void tick()
     {
         fd_set fds;
@@ -59,15 +62,14 @@ public:
 
         struct timeval tv;
         tv.tv_sec = 0;
-        tv.tv_usec = 0;
+        tv.tv_usec = 0; // Não bloqueante
 
         int ret = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
 
         if (ret > 0)
         {
-            char buffer[1]; // Lendo 1 byte por vez agora
-
-            // Lê 1 byte instantâneo
+            char buffer[1];
+            // Usa ::read global para evitar conflito de nome
             int bytesRead = ::read(STDIN_FILENO, buffer, 1);
 
             if (bytesRead > 0)
@@ -76,15 +78,28 @@ public:
             }
         }
 
+        // Se tem dados e o PIC não está ocupado, pede IRQ
         if (!internalBuffer.empty() && !pic->isPending())
         {
-            pic->requestIRQ(1);
+            // Passamos o Ciclo Atual para o PIC calcular a latência
+            if (globalCycle != nullptr)
+            {
+                pic->requestIRQ(1, *globalCycle);
+            }
+            else
+            {
+                // Fallback caso não tenha métricas (previne crash)
+                pic->requestIRQ(1, 0);
+            }
         }
     }
 
+    // --- Leitura via MMIO (0xF000) ---
     Word read(Address addr) const override
     {
         Keyboard *self = const_cast<Keyboard *>(this);
+
+        // Se a CPU ler 0xF000, entregamos a tecla
         if (addr == 0xF000 && !self->internalBuffer.empty())
         {
             char c = self->internalBuffer.front();

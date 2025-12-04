@@ -5,6 +5,8 @@
 #include "ALU.h"
 #include "InstructionDecoder.h"
 #include "PIC.h"
+#include "Stats.h"  // Necessário para métricas
+#include "Colors.h" // Necessário para logs coloridos
 #include <iostream>
 
 class CPU
@@ -14,17 +16,18 @@ private:
     ALU alu;
     IMemoryDevice *bus;
     PIC *pic;
+    Stats *stats; // Ponteiro para o coletor de estatísticas
 
     bool interruptsEnabled;
     bool halted;
 
 public:
-    // Construtor com Injeção de Dependência
-    CPU(IMemoryDevice *memoryBus, PIC *interruptController = nullptr)
-        : bus(memoryBus), pic(interruptController), halted(false)
+    // Construtor Atualizado: Recebe Stats*
+    CPU(IMemoryDevice *memoryBus, PIC *interruptController, Stats *systemStats)
+        : bus(memoryBus), pic(interruptController), stats(systemStats), halted(false)
     {
         registers.reset();
-        interruptsEnabled = true; // Começa ouvindo
+        interruptsEnabled = true; // Começa ouvindo interrupções
     }
 
     // --- Métodos Auxiliares de Pilha ---
@@ -56,6 +59,10 @@ public:
         // 2. FETCH (Busca)
         fetch();
 
+        // [METRICA] Contabiliza Instrução Executada (IPC)
+        if (stats)
+            stats->totalInstructions++;
+
         // 3. DECODE (Decodificação)
         DecodedInstruction decoded = decode();
 
@@ -79,26 +86,38 @@ private:
     // --- Tratamento de Interrupções ---
     void checkInterrupts()
     {
+        // Se interrupções desligadas, ou sem PIC, ou sem pedido, retorna.
         if (!interruptsEnabled || pic == nullptr || !pic->isPending())
             return;
 
         // A CPU aceita a interrupção
         uint8_t vector = pic->ackIRQ();
 
+        // [METRICA] Calcular Latência de Serviço da IRQ
+        if (stats)
+        {
+            unsigned long long latency = stats->totalCycles - stats->irqRequestTimestamp;
+            stats->totalIrqLatency += latency;
+            stats->irqCount++;
+        }
+
         // 1. DESATIVA NOVAS INTERRUPÇÕES (Modo "Não Perturbe")
         interruptsEnabled = false;
 
-        std::cout << "[CPU] INTERRUPT DETECTED! Vector: " << (int)vector << std::endl;
+        // Log Colorido para destaque
+        std::cout << Color::MAGENTA << Color::BOLD
+                  << "[CPU] INTERRUPT DETECTED! Vector: " << (int)vector
+                  << " (Interrupts Disabled)" << Color::RESET << std::endl;
 
         // --- CONTEXT SWITCH (Usando a Pilha) ---
-        // Agora salvamos o PC na pilha. Isso permite interrupções aninhadas.
+        // Salva o PC na pilha para permitir retorno depois
         push(registers.getPC());
 
-        // Desvio baseado no vetor (Tabela de Vetores Simplificada)
+        // Desvio baseado no vetor
         if (vector == 1)
         {
             registers.setPC(500); // Endereço do Driver de Teclado
-            std::cout << "[CPU] PUSH PC na Pilha. Saltando para ISR (500)." << std::endl;
+            // std::cout << "[CPU] Saltando para ISR (500)." << std::endl;
         }
     }
 
@@ -129,16 +148,16 @@ private:
         // --- Pré-Busca de Operando ---
         int32_t operandValue = 0;
 
-        // Instruções que usam o operando como ENDEREÇO de destino (não buscam valor)
-        // Adicionado CALL aqui, pois ele funciona como um JUMP
+        // Instruções que usam o operando como ENDEREÇO de destino ou OFFSET
+        // Adicionado CALL e PUSH na lista de exceções de leitura automática
         bool isJumpLike = (type == InstructionType::STORE ||
                            type == InstructionType::JUMP ||
                            type == InstructionType::JEQ ||
-                           type == InstructionType::CALL);
+                           type == InstructionType::CALL ||
+                           type == InstructionType::PUSH);
 
         if (!isJumpLike)
         {
-            // Para as demais (ADD, SUB, LOAD, etc.), resolvemos o valor
             if (instr.isAddressMode)
             {
                 operandValue = bus->read(instr.operand);
@@ -152,7 +171,7 @@ private:
         // --- Execução da Instrução ---
         switch (type)
         {
-        // Operações Aritméticas/Lógicas (Usam a ULA)
+        // Operações Aritméticas/Lógicas
         case InstructionType::ADD:
         case InstructionType::SUB:
         case InstructionType::AND:
@@ -170,7 +189,7 @@ private:
             bus->write(instr.operand, registers.getACC());
             break;
 
-        // Controle de Fluxo Simples
+        // Controle de Fluxo
         case InstructionType::JUMP:
             registers.setPC(instr.operand);
             break;
@@ -193,16 +212,17 @@ private:
             break;
 
         case InstructionType::CALL:
-            // 1. Salva o endereço de retorno (PC atual) na pilha
+            // 1. Salva PC atual
             push(registers.getPC());
-            // 2. Pula para o endereço da função (operando)
+            // 2. Pula
             registers.setPC(instr.operand);
             break;
 
         case InstructionType::RET:
-            // Recupera o endereço de retorno da pilha e joga no PC
+            // Recupera PC
             registers.setPC(pop());
-            interruptsEnabled = true; // Reativa interrupções ao retornar
+            // Reativa interrupções ao retornar da função/ISR
+            interruptsEnabled = true;
             break;
 
         default:
