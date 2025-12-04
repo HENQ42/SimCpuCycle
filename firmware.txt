@@ -1,33 +1,47 @@
-; === SHELL SYSTEM v1.0 ===
+; === SHELL "BUFFERED" SYSTEM ===
+; Digite varias letras (elas ficarao invisiveis)
+; Aperte 'l' para mostrar tudo de uma vez.
+; Aperte 'z' para sair.
 
-; --- Thread Principal ---
+; --- Loop Principal ---
 INICIO:
-    ADD #0      ; NOP
-    JUMP INICIO ; Fica aqui para sempre
+    ADD #0      
+    JUMP INICIO 
 
 ; --- Driver de Teclado (ISR) ---
 ORG 500
 HANDLER:
-    PUSH        ; Salva contexto
+    PUSH        ; 1. Salva o contexto (ACC do loop principal)
 
-    ; 1. LEITURA
+    ; --- LEITURA E BACKUP ---
     LOAD 61440  ; Lê do Teclado (0xF000)
-    
-    ; 2. ECHO (Imprime na tela o que foi digitado)
-    ; Escreve no Display (0xE000 = 57344)
-    STORE 57344 
+    STORE 100   ; Salva backup na RAM[100] (Var: TeclaAtual)
 
-    ; 3. VERIFICACAO DE COMANDO ('z')
-    ; ASCII de 'z' é 122. Vamos subtrair 122.
-    SUB #122    
-    
-    ; Se o resultado for 0, ativa a ZeroFlag e pula para DESLIGAR
+    ; --- VERIFICACAO: É 'z'? (Sair) ---
+    LOAD 100    ; Recarrega Tecla
+    SUB #122    ; 'z' = 122
     JEQ DESLIGAR
 
-    ; 4. RETORNO (Se nao foi 'z')
-    POP         ; Restaura contexto
-    RET         ; Volta ao loop
+    ; --- VERIFICACAO: É 'l'? (Flush) ---
+    LOAD 100    ; Recarrega Tecla
+    SUB #108    ; 'l' = 108
+    JEQ FAZER_FLUSH
+
+    ; --- CASO PADRAO: Acumular no Buffer ---
+    ; Se não é 'z' nem 'l', guardamos no display sem mostrar.
+    LOAD 100    ; Recarrega Tecla
+    STORE 57344 ; Escreve no DATA REGISTER (0xE000) - Bufferiza
+    JUMP SAIR   ; Fim da interrupcao
+
+FAZER_FLUSH:
+    ; O usuario apertou 'l'. Vamos mandar o comando de imprimir.
+    LOAD #1     ; Comando 1 = FLUSH
+    STORE 57345 ; Escreve no COMMAND REGISTER (0xE001)
+    JUMP SAIR
+
+SAIR:
+    POP         ; Restaura o contexto original
+    RET         ; Volta para o loop principal
 
 DESLIGAR:
-    ; Se chegou aqui, o usuario apertou 'z'
     HALT

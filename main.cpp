@@ -78,7 +78,7 @@ void run(const std::string &firmwareFile)
     std::vector<Word> buffer(sizeBytes / sizeof(Word));
     binFile.read(reinterpret_cast<char *>(buffer.data()), sizeBytes);
 
-    std::cout << "[BOOT] Carregando " << buffer.size() << " instrucoes na RAM." << std::endl;
+    std::cout << "[BOOT] Carregando " << buffer.size() << " instrucoes na Memória Principal." << std::endl;
     ram.loadProgram(buffer);
 
     // 3. Executa

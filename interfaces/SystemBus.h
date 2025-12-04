@@ -17,16 +17,11 @@ public:
 
     Word read(Address addr) const override
     {
-        // Mapa de Memória:
-        // 0x0000 - 0xEFFF: RAM
-        // 0xF000 - 0xFFFF: I/O (Teclado)
-
         if (addr >= 0xF000)
-            return keyboard->read(addr); // Redireciona para o teclado
+            return keyboard->read(addr);
         if (addr >= 0xE000)
-            return display->read(addr);
-
-        return ram->read(addr); // Redireciona para RAM
+            return display->read(addr); // Display cuida de E000 e E001
+        return ram->read(addr);
     }
 
     void write(Address addr, Word value) override
@@ -37,7 +32,7 @@ public:
         }
         else if (addr >= 0xE000)
         {
-            display->write(addr, value); // Escreve no Display
+            display->write(addr, value); // Display cuida de E000 e E001
         }
         else
         {
