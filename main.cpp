@@ -130,6 +130,10 @@ void run(const std::string &firmwareFile, bool quiet)
         {
             usleep(200000);
         }
+        else
+        {
+            usleep(5000);
+        }
     }
 
     std::cout << "\n"
