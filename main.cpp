@@ -1,19 +1,19 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include <string>
-#include <cstring> // Para memcpy se necessário
-
 #include "interfaces/Types.h"
 #include "interfaces/Ram.h"
-#include "interfaces/Assembler.h"
-#include "interfaces/CPU.h"
 #include "interfaces/Cache.h"
+#include "interfaces/PIC.h"
+#include "interfaces/Keyboard.h"
+#include "interfaces/SystemBus.h"
+#include "interfaces/CPU.h"
+#include "interfaces/Assembler.h"
 
-// --- Simula o ambiente de Desenvolvimento ---
-void compilarPrograma(const std::string &inputTxt, const std::string &outputBin)
+// --- COMPILADOR (Host) ---
+void build(const std::string &inputTxt, const std::string &outputBin)
 {
-    std::cout << "[Host PC] Iniciando Assembler..." << std::endl;
+    std::cout << "[BUILD] Compilando " << inputTxt << " para " << outputBin << "..." << std::endl;
 
     Assembler assembler;
     std::vector<std::string> sourceCode;
@@ -32,18 +32,15 @@ void compilarPrograma(const std::string &inputTxt, const std::string &outputBin)
     }
     file.close();
 
-    // Gera o vetor de Words (os dados brutos)
+    // Gera o vetor binário (com os zeros do ORG preenchidos)
     std::vector<Word> binary = assembler.assembleProgram(sourceCode);
 
-    // Salva em disco como arquivo binário puro
     std::ofstream outFile(outputBin, std::ios::binary);
     if (outFile.is_open())
     {
-        // Escreve o vetor inteiro de uma vez
-        // reinterpret_cast converte o ponteiro de Word* para char* (bytes)
         outFile.write(reinterpret_cast<const char *>(binary.data()), binary.size() * sizeof(Word));
         outFile.close();
-        std::cout << "[Host PC] Sucesso! Binario gerado: " << outputBin << " (" << binary.size() * sizeof(Word) << " bytes)" << std::endl;
+        std::cout << "[BUILD] Sucesso! Tamanho do firmware: " << binary.size() << " palavras." << std::endl;
     }
     else
     {
@@ -51,62 +48,66 @@ void compilarPrograma(const std::string &inputTxt, const std::string &outputBin)
     }
 }
 
-// --- Simula o Hardware Real ---
-void ligarMaquina(const std::string &firmwareFile)
+// --- MAQUINA VIRTUAL (Target) ---
+void run(const std::string &firmwareFile)
 {
-    std::cout << "\n[Hardware] Ligando sistema..." << std::endl;
+    std::cout << "[RUN] Iniciando Maquina..." << std::endl;
 
-    // 1. Hardware Físico
+    // 1. Instancia Hardware
     Ram ram;
+    Cache cache(&ram, 8);
+    PIC pic;
+    Keyboard keyboard(&pic);
+    SystemBus bus(&cache, &keyboard);
+    CPU cpu(&bus, &pic);
 
-    // 2. Simulação do "Bootloader" ou "Circuito de Carga"
-    // O hardware lê o arquivo binário do "disco/flash" para a RAM volátil
-    std::ifstream binFile(firmwareFile, std::ios::binary | std::ios::ate); // ate = at the end (para pegar tamanho)
-
+    // 2. Carrega Firmware do Disco
+    std::ifstream binFile(firmwareFile, std::ios::binary | std::ios::ate);
     if (!binFile.is_open())
     {
-        std::cerr << "[Hardware Error] Disco de boot não encontrado ou corrompido!" << std::endl;
+        std::cerr << "Erro: Firmware nao encontrado: " << firmwareFile << std::endl;
         return;
     }
 
-    std::streamsize size = binFile.tellg();
+    std::streamsize sizeBytes = binFile.tellg();
     binFile.seekg(0, std::ios::beg);
 
-    std::vector<Word> buffer(size / sizeof(Word));
-    if (binFile.read(reinterpret_cast<char *>(buffer.data()), size))
+    std::vector<Word> buffer(sizeBytes / sizeof(Word));
+    binFile.read(reinterpret_cast<char *>(buffer.data()), sizeBytes);
+
+    std::cout << "[BOOT] Carregando " << buffer.size() << " instrucoes na RAM." << std::endl;
+    ram.loadProgram(buffer);
+
+    // 3. Executa
+    std::cout << "[SYSTEM] Power On." << std::endl;
+
+    // Loop de Clock (Max 50 ciclos para teste)
+    for (int cycle = 0; cycle < 50; cycle++)
     {
-        std::cout << "[Bootloader] Copiando firmware para a RAM..." << std::endl;
-        ram.loadProgram(buffer);
+        // Log visual limpo
+        if (cycle % 10 == 0)
+            std::cout << "Cycle " << cycle << "..." << std::endl;
+
+        keyboard.tick();
+        cpu.step();
+
+        // Checagem de sucesso (apenas para teste)
+        Word val = ram.read(100);
+        if (val != 0)
+        {
+            std::cout << "\n>>> SUCESSO! Interrupcao atendida. RAM[100] = '"
+                      << (char)val << "' <<<\n"
+                      << std::endl;
+            break; // Para a simulação
+        }
     }
-
-    // 3. O "Reset" da CPU
-    Cache cache(&ram, 8); // Cache pequena de 8 posições para forçar conflitos
-    CPU cpu(&cache);      // A CPU nem sabe que existe uma cache!
-
-    std::cout << "[CPU] RESET signal high. Executando..." << std::endl;
-    cpu.run();
-
-    // Pós-mortem
-    std::cout << "\n=== Debug Hardware ===" << std::endl;
-    cpu.getRegisters().dump();
-    std::cout << "Memoria[100]: " << ram.read(100) << std::endl;
 }
 
 int main(int argc, char *argv[])
 {
-    // Vamos criar uma interface simples de linha de comando
-    // Uso:
-    // ./cpu build program_labels.txt firmware.bin
-    // ./cpu run firmware.bin
-
     if (argc < 2)
     {
-        std::cout << "Uso:\n  main build <fonte.txt> <saida.bin>\n  main run <entrada.bin>" << std::endl;
-
-        // Para facilitar seus testes no IDE sem argumentos, vamos forçar um fluxo padrão:
-        std::cout << "\n--- Modo Automatico de Teste ---" << std::endl;
-        compilarPrograma("program_labels.txt", "rom.bin");
-        ligarMaquina("rom.bin");
+        std::cout << "Uso:\n  ./cpu_sim build <fonte.txt> <saida.bin>\n  ./cpu_sim run <entrada.bin>" << std::endl;
         return 0;
     }
 
@@ -114,11 +115,11 @@ int main(int argc, char *argv[])
 
     if (command == "build" && argc == 4)
     {
-        compilarPrograma(argv[2], argv[3]);
+        build(argv[2], argv[3]);
     }
     else if (command == "run" && argc == 3)
     {
-        ligarMaquina(argv[2]);
+        run(argv[2]);
     }
     else
     {

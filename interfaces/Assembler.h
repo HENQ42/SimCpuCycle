@@ -11,12 +11,11 @@ class Assembler
 {
 private:
     std::unordered_map<std::string, Opcode> opcodes;
-    std::unordered_map<std::string, Address> symbolTable; // Guarda: "LOOP" -> 2
+    std::unordered_map<std::string, Address> symbolTable;
 
 public:
     Assembler()
     {
-        // Inicializa o dicionário de instruções
         opcodes["HALT"] = (Opcode)InstructionType::HALT;
         opcodes["LOAD"] = (Opcode)InstructionType::LOAD;
         opcodes["STORE"] = (Opcode)InstructionType::STORE;
@@ -29,79 +28,96 @@ public:
         opcodes["JEQ"] = (Opcode)InstructionType::JEQ;
     }
 
-    // Método Utilitário de Limpeza
     std::string cleanLine(std::string line)
     {
-        // 1. Remove comentários
         size_t commentPos = line.find(';');
         if (commentPos != std::string::npos)
-        {
             line = line.substr(0, commentPos);
-        }
-        // 2. Trim (remove espaços do inicio e fim)
         const std::string whitespace = " \t\r\n";
         size_t start = line.find_first_not_of(whitespace);
         if (start == std::string::npos)
-            return ""; // Linha vazia
+            return "";
         size_t end = line.find_last_not_of(whitespace);
         return line.substr(start, end - start + 1);
     }
 
-    /**
-     * O GRANDE MÉTODO: Recebe o código fonte completo e retorna o binário.
-     * Realiza dois passos: 1. Mapear Labels, 2. Gerar Código.
-     */
     std::vector<Word> assembleProgram(const std::vector<std::string> &sourceLines)
     {
         symbolTable.clear();
         std::vector<Word> binaryProgram;
         std::vector<std::string> cleanLines;
 
-        // --- Pré-processamento: Limpar linhas e remover vazias ---
+        // Pré-processamento
         for (const auto &raw : sourceLines)
         {
             std::string clean = cleanLine(raw);
             if (!clean.empty())
-            {
                 cleanLines.push_back(clean);
-            }
         }
 
-        // --- PASSO 1: Mapear Labels ---
+        // --- PASSO 1: Mapear Labels (Considerando ORG) ---
         Address currentAddress = 0;
         for (const auto &line : cleanLines)
         {
-            // Verifica se a linha é uma declaração de Label (ex: "LOOP:")
+            // Diretiva ORG (Muda o cursor de endereço atual)
+            if (line.substr(0, 3) == "ORG")
+            {
+                try
+                {
+                    currentAddress = std::stoi(line.substr(4));
+                }
+                catch (...)
+                {
+                    std::cerr << "Erro ORG invalido\n";
+                }
+                continue;
+            }
+
             if (line.back() == ':')
             {
-                std::string label = line.substr(0, line.size() - 1); // Remove ':'
+                std::string label = line.substr(0, line.size() - 1);
                 symbolTable[label] = currentAddress;
-                // Labels não ocupam espaço na memória, são apenas marcadores
             }
             else
             {
-                // É uma instrução, ocupa 1 espaço na memória
                 currentAddress++;
             }
         }
 
-        // --- PASSO 2: Gerar Código ---
-        currentAddress = 0;
+        // --- PASSO 2: Gerar Binário ---
+        binaryProgram.clear(); // Limpa para garantir
         for (const auto &line : cleanLines)
         {
-            if (line.back() == ':')
-                continue; // Pula definições de label
+            // Tratamento de ORG no Passo 2
+            if (line.substr(0, 3) == "ORG")
+            {
+                Address targetAddr = 0;
+                try
+                {
+                    targetAddr = std::stoi(line.substr(4));
+                }
+                catch (...)
+                {
+                }
 
-            binaryProgram.push_back(assembleLineWithSymbols(line));
-            currentAddress++;
+                // Preenche o "buraco" com zeros até chegar no endereço desejado
+                while (binaryProgram.size() < targetAddr)
+                {
+                    binaryProgram.push_back(0); // 0 = HALT/NOP
+                }
+                continue;
+            }
+
+            if (line.back() == ':')
+                continue;
+
+            binaryProgram.push_back(assembleLine(line));
         }
 
         return binaryProgram;
     }
 
-private:
-    // Versão interna que consulta a tabela de símbolos
-    Word assembleLineWithSymbols(std::string line)
+    Word assembleLine(std::string line)
     {
         std::stringstream ss(line);
         std::string mnemonic;
@@ -117,13 +133,10 @@ private:
         }
 
         Opcode op = opcodes[mnemonic];
-
-        // Se for HALT, retorna logo
         if (op == (Opcode)InstructionType::HALT)
             return (Word)op << 24;
 
         ss >> operandStr;
-
         bool isImmediate = false;
         uint32_t operandValue = 0;
 
@@ -131,7 +144,6 @@ private:
         {
             if (operandStr[0] == '#')
             {
-                // Imediato Literal (#10)
                 isImmediate = true;
                 try
                 {
@@ -143,7 +155,6 @@ private:
             }
             else if (isdigit(operandStr[0]))
             {
-                // Endereço Numérico Direto (100)
                 isImmediate = false;
                 try
                 {
@@ -155,10 +166,7 @@ private:
             }
             else
             {
-                // LABEL (LOOP)
-                // Aqui está a mágica: trocamos o texto pelo endereço gravado no Passo 1
-                isImmediate = false; // Labels são sempre endereços (Modo 1)
-
+                isImmediate = false;
                 if (symbolTable.find(operandStr) != symbolTable.end())
                 {
                     operandValue = symbolTable[operandStr];
@@ -173,7 +181,7 @@ private:
         Word machineCode = 0;
         machineCode |= ((Word)op << 24);
         if (!isImmediate)
-            machineCode |= (1 << 23); // Modo Endereço (Bit 23 = 1)
+            machineCode |= (1 << 23);
         machineCode |= (operandValue & 0x7FFFFF);
 
         return machineCode;

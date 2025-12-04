@@ -1,0 +1,28 @@
+; === KERNEL BASICO DO OS ===
+
+; --- Loop Principal (Main Thread) ---
+; Endereco 0
+INICIO:
+    ADD #0      ; Gasta tempo (NOP)
+    JUMP INICIO ; Loop infinito esperando interrupcao
+
+; --- Driver de Teclado (ISR) ---
+; A CPU pula para ca automaticamente quando recebe IRQ 1
+; Precisamos forcar esse codigo a ficar no endereco 500
+
+ORG 500
+HANDLER_TECLADO:
+    ; 1. Ler o dado do Teclado (MMIO 0xF000 = 61440)
+    LOAD 61440 
+    
+    ; 2. Salvar na RAM para o usuario ver (Addr 100)
+    STORE 100
+    
+    ; 3. Recuperar o PC antigo
+    ; A CPU salvou o PC original no endereco 0x3FF (1023)
+    LOAD 1023
+    
+    ; 4. Encerrar Simulacao
+    ; Como nao temos JUMP indireto ou RET, usamos HALT 
+    ; para provar que chegamos aqui e o teste funcionou.
+    HALT
