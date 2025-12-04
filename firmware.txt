@@ -1,47 +1,157 @@
-; === SHELL "BUFFERED" SYSTEM ===
-; Digite varias letras (elas ficarao invisiveis)
-; Aperte 'l' para mostrar tudo de uma vez.
-; Aperte 'z' para sair.
+; === FIBONACCI OS v3.0 (STABLE) ===
+; - Reseta Fibonacci se > 1000 para nao travar.
+; - 'l' funciona para mostrar texto digitado.
+; - 'f' mostra o numero atual.
 
-; --- Loop Principal ---
-INICIO:
-    ADD #0      
-    JUMP INICIO 
+; --- Inicializacao ---
+LOAD #1
+STORE 200   ; Fib(n-2)
+STORE 201   ; Fib(n-1)
 
-; --- Driver de Teclado (ISR) ---
+; --- MAIN THREAD ---
+MAIN_LOOP:
+    CALL CALC_FIB
+    CALL DELAY_FUNCTION
+    JUMP MAIN_LOOP
+
+; --- CALCULO FIBONACCI ---
+CALC_FIB:
+    LOAD 201
+    ADD 200
+    STORE 202   ; Temp = Novo
+
+    ; VERIFICACAO DE SEGURANCA: Se > 1000, Reseta.
+    ; SLT retorna 1 se (Temp < 1000), 0 se maior/igual.
+    LOAD 202
+    SLT #1000
+    SUB #1      ; Se era 1 (true), vira 0. Se era 0 (false), vira -1.
+    JEQ ATUALIZAR_VARIAVEIS
+
+    ; Se chegou aqui, o numero estourou 1000. Reseta.
+    LOAD #1
+    STORE 200
+    STORE 201
+    RET
+
+ATUALIZAR_VARIAVEIS:
+    LOAD 201
+    STORE 200   ; Antigo2 = Antigo1
+    
+    LOAD 202
+    STORE 201   ; Antigo1 = Novo
+    RET
+
+; --- DELAY ---
+DELAY_FUNCTION:
+    LOAD #20    ; Velocidade
+    STORE 205
+DELAY_L:
+    LOAD 205
+    SUB #1
+    JEQ DELAY_EXIT
+    STORE 205
+    JUMP DELAY_L
+DELAY_EXIT:
+    RET
+
+; ==========================================
+;       DRIVER DE TECLADO (ISR)
+; ==========================================
 ORG 500
 HANDLER:
-    PUSH        ; 1. Salva o contexto (ACC do loop principal)
+    PUSH        ; Salva contexto
 
-    ; --- LEITURA E BACKUP ---
-    LOAD 61440  ; Lê do Teclado (0xF000)
-    STORE 100   ; Salva backup na RAM[100] (Var: TeclaAtual)
+    LOAD 61440  ; Limpa buffer teclado
+    STORE 100   ; TempKey
 
-    ; --- VERIFICACAO: É 'z'? (Sair) ---
-    LOAD 100    ; Recarrega Tecla
-    SUB #122    ; 'z' = 122
+    ; Comandos
+    LOAD 100
+    SUB #122    ; 'z'
     JEQ DESLIGAR
 
-    ; --- VERIFICACAO: É 'l'? (Flush) ---
-    LOAD 100    ; Recarrega Tecla
-    SUB #108    ; 'l' = 108
-    JEQ FAZER_FLUSH
+    LOAD 100
+    SUB #102    ; 'f'
+    JEQ PRINT_NUMBER_ROUTINE
 
-    ; --- CASO PADRAO: Acumular no Buffer ---
-    ; Se não é 'z' nem 'l', guardamos no display sem mostrar.
-    LOAD 100    ; Recarrega Tecla
-    STORE 57344 ; Escreve no DATA REGISTER (0xE000) - Bufferiza
-    JUMP SAIR   ; Fim da interrupcao
+    LOAD 100
+    SUB #108    ; 'l'
+    JEQ DO_FLUSH
 
-FAZER_FLUSH:
-    ; O usuario apertou 'l'. Vamos mandar o comando de imprimir.
-    LOAD #1     ; Comando 1 = FLUSH
-    STORE 57345 ; Escreve no COMMAND REGISTER (0xE001)
-    JUMP SAIR
+    ; --- CASO PADRAO (Conserto do 'l') ---
+    ; Se nao for comando, guarda no buffer do display
+    LOAD 100
+    STORE 57344
+    JUMP SAIR_ISR
 
-SAIR:
-    POP         ; Restaura o contexto original
-    RET         ; Volta para o loop principal
+; ------------------------------------------
+; IMPRESSAO NUMERICA
+; ------------------------------------------
+PRINT_NUMBER_ROUTINE:
+    LOAD 201
+    STORE 300   ; Work Val
+
+    ; Centenas
+    LOAD #0
+    STORE 301
+LOOP_100:
+    LOAD 300
+    SLT #100
+    SUB #1
+    JEQ FIM_100
+    LOAD 300
+    SUB #100
+    STORE 300
+    LOAD 301
+    ADD #1
+    STORE 301
+    JUMP LOOP_100
+FIM_100:
+    LOAD 301
+    ADD #48
+    STORE 57344
+
+    ; Dezenas
+    LOAD #0
+    STORE 301
+LOOP_10:
+    LOAD 300
+    SLT #10
+    SUB #1
+    JEQ FIM_10
+    LOAD 300
+    SUB #10
+    STORE 300
+    LOAD 301
+    ADD #1
+    STORE 301
+    JUMP LOOP_10
+FIM_10:
+    LOAD 301
+    ADD #48
+    STORE 57344
+
+    ; Unidades
+    LOAD 300
+    ADD #48
+    STORE 57344
+    
+    ; Espaço
+    LOAD #32
+    STORE 57344
+
+    ; Auto-Flush para o 'f'
+    LOAD #1
+    STORE 57345
+    JUMP SAIR_ISR
+
+DO_FLUSH:
+    LOAD #1
+    STORE 57345
+    JUMP SAIR_ISR
+
+SAIR_ISR:
+    POP
+    RET
 
 DESLIGAR:
     HALT
