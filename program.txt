@@ -1,0 +1,40 @@
+; ; --- Inicializacao de Variaveis ---
+; LOAD #20    ; Carrega 20 no ACC
+; STORE 50    ; Guarda o 20 no endereco de memoria 50 (nossa variavel 'A')
+; 
+; ; --- O Calculo Real: (A + 10) - 5 ---
+; LOAD 50     ; Carrega o valor do endereco 50 (A = 20) no ACC. (Modo Endereco)
+; ADD #10     ; Soma 10 ao ACC. ACC vira 30. (Modo Imediato)
+; SUB #5      ; Subtrai 5 do ACC. ACC vira 25. (Modo Imediato)
+; 
+; ; --- Salvar Resultado ---
+; STORE 100   ; Salva o ACC (25) no endereco 100
+; HALT        ; Para a CPU
+
+
+
+
+
+
+
+
+; --- Inicializacao ---
+LOAD #5     ; [Addr 0] Carrega 5 no ACC
+STORE 100   ; [Addr 1] Salva em MEM[100] (nosso contador)
+
+; --- Inicio do Loop (Endereco 2) ---
+LOAD 100    ; [Addr 2] Lê o contador
+SUB #1      ; [Addr 3] Subtrai 1
+STORE 100   ; [Addr 4] Salva o novo valor
+
+; --- Verificacao ---
+; Se o resultado da subtracao foi 0, a ZeroFlag está True.
+; Pule para o fim (Endereco 7)
+JEQ 7       ; [Addr 5] Jump if Equal/Zero para HALT
+
+; --- Repeticao ---
+; Se nao foi zero, volta para o inicio do loop (Endereco 2)
+JUMP 2      ; [Addr 6] Jump incondicional para LOAD 100
+
+; --- Fim ---
+HALT        ; [Addr 7]
