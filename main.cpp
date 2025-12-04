@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <string>
 #include <unistd.h> // Para usleep
 
 // Mantendo o padrão de pastas que você forneceu
@@ -55,9 +56,14 @@ void build(const std::string &inputTxt, const std::string &outputBin)
 }
 
 // --- MAQUINA VIRTUAL (Target) ---
-void run(const std::string &firmwareFile)
+// Adicionado parâmetro 'quiet'
+void run(const std::string &firmwareFile, bool quiet)
 {
     std::cout << Color::BLUE << Color::BOLD << "[RUN] Iniciando Maquina..." << Color::RESET << std::endl;
+    if (quiet)
+    {
+        std::cout << Color::YELLOW << "[INFO] Modo Quiet ativado (Logs de Cache ocultos)." << Color::RESET << std::endl;
+    }
     std::cout << "DIGITE AGORA (" << Color::RED << "z" << Color::RESET << " para sair):" << std::endl;
 
     // 1. Objeto Central de Estatísticas
@@ -66,8 +72,9 @@ void run(const std::string &firmwareFile)
     // 2. Instancia Hardware (Injetando dependência de Stats)
     Ram ram;
 
-    // Cache recebe RAM e Stats
-    Cache cache(&ram, &stats, 8);
+    // Cache recebe RAM e Stats.
+    // Atualizado: passamos 4 explicitamente (tamanho da linha) para poder passar !quiet no 5º argumento (verbose)
+    Cache cache(&ram, &stats, 8, 4, !quiet);
 
     // PIC recebe Stats (para latência de IRQ)
     PIC pic(&stats);
@@ -119,7 +126,10 @@ void run(const std::string &firmwareFile)
         // 3. Pequena pausa (1ms) para não usar 100% da CPU do seu computador
         // 700000 (0.7s) é muito lento para digitação em tempo real.
         // 1000 (1ms) é fluido.
-        usleep(60000);
+        if (!quiet)
+        {
+            usleep(200000);
+        }
     }
 
     std::cout << "\n"
@@ -133,7 +143,7 @@ int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        std::cout << "Uso:\n  ./cpu_sim build <fonte.txt> <saida.bin>\n  ./cpu_sim run <entrada.bin>" << std::endl;
+        std::cout << "Uso:\n  ./cpu_sim build <fonte.txt> <saida.bin>\n  ./cpu_sim run <entrada.bin> [-q|--quiet]" << std::endl;
         return 0;
     }
 
@@ -143,13 +153,38 @@ int main(int argc, char *argv[])
     {
         build(argv[2], argv[3]);
     }
-    else if (command == "run" && argc == 3)
+    // Alterado para aceitar argumentos opcionais (argc >= 3)
+    else if (command == "run" && argc >= 3)
     {
-        run(argv[2]);
+        std::string firmwareFile;
+        bool quiet = false;
+
+        // Parser simples de argumentos para o comando run
+        for (int i = 2; i < argc; i++)
+        {
+            std::string arg = argv[i];
+            if (arg == "-q" || arg == "--quiet")
+            {
+                quiet = true;
+            }
+            else
+            {
+                firmwareFile = arg;
+            }
+        }
+
+        if (!firmwareFile.empty())
+        {
+            run(firmwareFile, quiet);
+        }
+        else
+        {
+            std::cout << "Erro: Arquivo de firmware nao especificado." << std::endl;
+        }
     }
     else
     {
-        std::cout << "Comando invalido." << std::endl;
+        std::cout << "Comando invalido ou argumentos incorretos." << std::endl;
     }
 
     return 0;

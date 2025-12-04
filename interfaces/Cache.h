@@ -22,13 +22,13 @@ private:
 
     size_t numLines;  // Quantas linhas a cache tem (ex: 8)
     size_t blockSize; // Quantas palavras cabem numa linha (ex: 4)
+    bool verbose;     // Controla se deve imprimir logs
 
 public:
-    // Atualizado construtor para receber Stats*
-    Cache(IMemoryDevice *ram, Stats *s, size_t linesCount = 8, size_t wordsPerLine = 4)
-        : ramReal(ram), stats(s), numLines(linesCount), blockSize(wordsPerLine)
+    // Atualizado construtor para receber Stats* e agora o booleano verbose
+    Cache(IMemoryDevice *ram, Stats *s, size_t linesCount = 8, size_t wordsPerLine = 4, bool verboseMode = true)
+        : ramReal(ram), stats(s), numLines(linesCount), blockSize(wordsPerLine), verbose(verboseMode)
     {
-
         // Inicializa as linhas com vetores vazios do tamanho correto
         lines.resize(numLines);
         for (auto &line : lines)
@@ -63,7 +63,10 @@ public:
                 stats->cacheHits++;
 
             // [HIT] O bloco inteiro já está aqui!
-            std::cout << Color::GREEN << "[CACHE HIT]  Addr: " << addr << Color::RESET << std::endl;
+            if (verbose)
+            {
+                std::cout << Color::GREEN << "[CACHE HIT]  Addr: " << addr << Color::RESET << std::endl;
+            }
             return line.dataBlock[offset];
         }
         else
@@ -76,9 +79,12 @@ public:
             }
 
             // [MISS] Precisamos buscar o BLOCO INTEIRO na RAM
-            std::cout << Color::RED << "[CACHE MISS] Addr: " << addr
-                      << " -> Buscando Bloco [" << (blockAddr * blockSize)
-                      << " a " << ((blockAddr * blockSize) + blockSize - 1) << "]..." << Color::RESET << std::endl;
+            if (verbose)
+            {
+                std::cout << Color::RED << "[CACHE MISS] Addr: " << addr
+                          << " -> Buscando Bloco [" << (blockAddr * blockSize)
+                          << " a " << ((blockAddr * blockSize) + blockSize - 1) << "]..." << Color::RESET << std::endl;
+            }
 
             // Endereço base do bloco na RAM
             Address baseAddress = blockAddr * blockSize;
@@ -112,11 +118,17 @@ public:
         {
             // Se o bloco está na cache, atualizamos a palavra específica nele
             lines[index].dataBlock[offset] = value;
-            std::cout << "[CACHE UPDATE] Addr: " << addr << " (Write-Through)" << std::endl;
+            if (verbose)
+            {
+                std::cout << "[CACHE UPDATE] Addr: " << addr << " (Write-Through)" << std::endl;
+            }
         }
         else
         {
-            std::cout << "[CACHE BYPASS] Addr: " << addr << " (Write-Through)" << std::endl;
+            if (verbose)
+            {
+                std::cout << "[CACHE BYPASS] Addr: " << addr << " (Write-Through)" << std::endl;
+            }
         }
     }
 };
