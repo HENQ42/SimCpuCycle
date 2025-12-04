@@ -15,6 +15,7 @@ private:
     IMemoryDevice *bus;
     PIC *pic;
 
+    bool interruptsEnabled;
     bool halted;
 
 public:
@@ -23,6 +24,7 @@ public:
         : bus(memoryBus), pic(interruptController), halted(false)
     {
         registers.reset();
+        interruptsEnabled = true; // Começa ouvindo
     }
 
     // --- Métodos Auxiliares de Pilha ---
@@ -69,17 +71,23 @@ public:
         }
     }
 
+    bool isHalted() const { return halted; }
+
     const Registers &getRegisters() const { return registers; }
 
 private:
     // --- Tratamento de Interrupções ---
     void checkInterrupts()
     {
-        if (pic == nullptr || !pic->isPending())
+        if (!interruptsEnabled || pic == nullptr || !pic->isPending())
             return;
 
         // A CPU aceita a interrupção
         uint8_t vector = pic->ackIRQ();
+
+        // 1. DESATIVA NOVAS INTERRUPÇÕES (Modo "Não Perturbe")
+        interruptsEnabled = false;
+
         std::cout << "[CPU] INTERRUPT DETECTED! Vector: " << (int)vector << std::endl;
 
         // --- CONTEXT SWITCH (Usando a Pilha) ---
@@ -194,6 +202,7 @@ private:
         case InstructionType::RET:
             // Recupera o endereço de retorno da pilha e joga no PC
             registers.setPC(pop());
+            interruptsEnabled = true; // Reativa interrupções ao retornar
             break;
 
         default:

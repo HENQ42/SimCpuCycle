@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <unistd.h>
 #include "interfaces/Types.h"
 #include "interfaces/Ram.h"
 #include "interfaces/Cache.h"
@@ -9,6 +10,7 @@
 #include "interfaces/SystemBus.h"
 #include "interfaces/CPU.h"
 #include "interfaces/Assembler.h"
+#include "interfaces/Display.h"
 
 // --- COMPILADOR (Host) ---
 void build(const std::string &inputTxt, const std::string &outputBin)
@@ -58,7 +60,8 @@ void run(const std::string &firmwareFile)
     Cache cache(&ram, 8);
     PIC pic;
     Keyboard keyboard(&pic);
-    SystemBus bus(&cache, &keyboard);
+    Display display;
+    SystemBus bus(&cache, &keyboard, &display);
     CPU cpu(&bus, &pic);
 
     // 2. Carrega Firmware do Disco
@@ -81,26 +84,21 @@ void run(const std::string &firmwareFile)
     // 3. Executa
     std::cout << "[SYSTEM] Power On." << std::endl;
 
-    // Loop de Clock (Max 50 ciclos para teste)
-    for (int cycle = 0; cycle < 50; cycle++)
+    // Loop Infinito Interativo
+    // A simulação roda até que o firmware execute HALT (acionado pelo 'z')
+    while (!cpu.isHalted())
     {
-        // Log visual limpo
-        if (cycle % 10 == 0)
-            std::cout << "Cycle " << cycle << "..." << std::endl;
-
+        // 1. Verifica entrada real do terminal
         keyboard.tick();
+
+        // 2. Avança a CPU
         cpu.step();
 
-        // Checagem de sucesso (apenas para teste)
-        Word val = ram.read(100);
-        if (val != 0)
-        {
-            std::cout << "\n>>> SUCESSO! Interrupcao atendida. RAM[100] = '"
-                      << (char)val << "' <<<\n"
-                      << std::endl;
-            break; // Para a simulação
-        }
+        // 3. Pequena pausa (1ms) para não usar 100% da CPU do seu computador
+        usleep(700000);
     }
+
+    std::cout << "\n[SYSTEM] Shutdown (Comando 'z' recebido ou HALT executado)." << std::endl;
 }
 
 int main(int argc, char *argv[])

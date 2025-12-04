@@ -1,19 +1,33 @@
-; === KERNEL ===
+; === SHELL SYSTEM v1.0 ===
 
+; --- Thread Principal ---
 INICIO:
     ADD #0      ; NOP
-    JUMP INICIO ; Loop infinito
+    JUMP INICIO ; Fica aqui para sempre
 
 ; --- Driver de Teclado (ISR) ---
 ORG 500
-HANDLER_TECLADO:
-    ; Nota: Uma boa ISR deve salvar o ACC antes de usar, 
-    ; para não estragar o cálculo do programa principal.
-    PUSH        ; Salva o ACC atual na pilha (Stack: [PC, ACC_Antigo])
+HANDLER:
+    PUSH        ; Salva contexto
+
+    ; 1. LEITURA
+    LOAD 61440  ; Lê do Teclado (0xF000)
     
-    LOAD 61440  ; Lê Teclado -> ACC
-    STORE 100   ; Salva na RAM
+    ; 2. ECHO (Imprime na tela o que foi digitado)
+    ; Escreve no Display (0xE000 = 57344)
+    STORE 57344 
+
+    ; 3. VERIFICACAO DE COMANDO ('z')
+    ; ASCII de 'z' é 122. Vamos subtrair 122.
+    SUB #122    
     
-    POP         ; Recupera o ACC antigo da pilha (Stack: [PC])
-    
-    RET         ; Pega o PC da pilha e volta para o INICIO
+    ; Se o resultado for 0, ativa a ZeroFlag e pula para DESLIGAR
+    JEQ DESLIGAR
+
+    ; 4. RETORNO (Se nao foi 'z')
+    POP         ; Restaura contexto
+    RET         ; Volta ao loop
+
+DESLIGAR:
+    ; Se chegou aqui, o usuario apertou 'z'
+    HALT

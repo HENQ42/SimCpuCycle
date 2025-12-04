@@ -3,58 +3,96 @@
 #include "PIC.h"
 #include <queue>
 #include <iostream>
+#include <string>
+#include <sys/select.h>
+#include <unistd.h>
+#include <termios.h> // <--- Biblioteca para controlar o terminal
 
 class Keyboard : public IMemoryDevice
 {
 private:
     PIC *pic;
-    std::queue<char> keyBuffer;
-    int cycleCount = 0;
+    std::queue<char> internalBuffer;
+    struct termios originalTermios; // Para salvar a config original
 
 public:
-    Keyboard(PIC *interruptController) : pic(interruptController) {}
+    Keyboard(PIC *interruptController) : pic(interruptController)
+    {
+        enableRawMode();
+    }
 
-    // Simula o tempo passando. A cada 20 ticks, "alguém" digita uma tecla.
+    ~Keyboard()
+    {
+        disableRawMode();
+    }
+
+    // --- Configuração do Terminal (A Mágica) ---
+    void enableRawMode()
+    {
+        // 1. Pega a configuração atual e salva
+        tcgetattr(STDIN_FILENO, &originalTermios);
+
+        // 2. Cria uma cópia para modificar
+        struct termios raw = originalTermios;
+
+        // 3. Desativa ICANON (Buffer de linha) e ECHO (Letra repetida)
+        // ICANON: Permite ler byte a byte sem Enter
+        // ECHO: Desliga o print automático do Linux (nossa CPU fará o print)
+        raw.c_lflag &= ~(ICANON | ECHO);
+
+        // 4. Aplica as mudanças
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+    }
+
+    void disableRawMode()
+    {
+        // Restaura o terminal como era antes do programa rodar
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &originalTermios);
+    }
+
+    // --- O Tick continua quase igual ---
     void tick()
     {
-        cycleCount++;
-        if (cycleCount % 20 == 0)
-        { // A cada 20 ciclos simulados
-            // Simulando entrada: Letra 'A' (65)
-            keyBuffer.push('A');
-            std::cout << "[KEYBOARD] Tecla 'A' pressionada. Gerando IRQ 1..." << std::endl;
-            pic->requestIRQ(1); // Dispara interrupção 1
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(STDIN_FILENO, &fds);
+
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 0;
+
+        int ret = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
+
+        if (ret > 0)
+        {
+            char buffer[1]; // Lendo 1 byte por vez agora
+
+            // Lê 1 byte instantâneo
+            int bytesRead = ::read(STDIN_FILENO, buffer, 1);
+
+            if (bytesRead > 0)
+            {
+                internalBuffer.push(buffer[0]);
+            }
+        }
+
+        if (!internalBuffer.empty() && !pic->isPending())
+        {
+            pic->requestIRQ(1);
         }
     }
 
-    // MMIO: A CPU lê daqui como se fosse memória RAM
-    // Endereço base simulado: 0xF000 (DATA), 0xF001 (STATUS)
     Word read(Address addr) const override
     {
-        // Como o método é const, precisamos de um hack ou mutable para alterar a fila.
-        // Para simplificar didaticamente, vamos assumir acesso direto:
         Keyboard *self = const_cast<Keyboard *>(this);
-
-        if (addr == 0xF000)
-        { // Registrador de DADOS
-            if (!self->keyBuffer.empty())
-            {
-                char c = self->keyBuffer.front();
-                self->keyBuffer.pop();
-                return (Word)c;
-            }
-            return 0;
-        }
-        else if (addr == 0xF001)
-        {                                           // Registrador de STATUS
-            return self->keyBuffer.empty() ? 0 : 1; // 1 = Tem dados
+        if (addr == 0xF000 && !self->internalBuffer.empty())
+        {
+            char c = self->internalBuffer.front();
+            self->internalBuffer.pop();
+            return (Word)c;
         }
         return 0;
     }
 
-    void write(Address addr, Word value) override
-    {
-        // Teclados geralmente são Read-Only para dados,
-        // mas poderíamos escrever comandos de controle (ex: acender LEDs)
-    }
+    void write(Address addr, Word value) override {}
 };

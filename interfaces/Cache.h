@@ -3,6 +3,7 @@
 #include <vector>
 #include <iostream>
 #include <iomanip>
+#include "Colors.h"
 
 struct CacheLine
 {
@@ -55,16 +56,15 @@ public:
         if (line.valid && line.tag == tag)
         {
             // [HIT] O bloco inteiro já está aqui!
-            std::cout << "[CACHE HIT]  Addr: " << addr
-                      << " (Line: " << index << " | Offset: " << offset << ")" << std::endl;
+            std::cout << Color::GREEN << "[CACHE HIT]  Addr: " << addr << Color::RESET << std::endl;
             return line.dataBlock[offset];
         }
         else
         {
             // [MISS] Precisamos buscar o BLOCO INTEIRO na RAM
-            std::cout << "[CACHE MISS] Addr: " << addr
+            std::cout << Color::RED << "[CACHE MISS] Addr: " << addr
                       << " -> Buscando Bloco [" << (blockAddr * blockSize)
-                      << " a " << ((blockAddr * blockSize) + blockSize - 1) << "]..." << std::endl;
+                      << " a " << ((blockAddr * blockSize) + blockSize - 1) << "]..." << Color::RESET << std::endl;
 
             // Endereço base do bloco na RAM
             Address baseAddress = blockAddr * blockSize;
