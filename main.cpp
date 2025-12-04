@@ -8,6 +8,7 @@
 #include "interfaces/Ram.h"
 #include "interfaces/Assembler.h"
 #include "interfaces/CPU.h"
+#include "interfaces/Cache.h"
 
 // --- Simula o ambiente de Desenvolvimento ---
 void compilarPrograma(const std::string &inputTxt, const std::string &outputBin)
@@ -79,8 +80,8 @@ void ligarMaquina(const std::string &firmwareFile)
     }
 
     // 3. O "Reset" da CPU
-    // A CPU acorda, recebe a conexão com a RAM e o PC inicia em 0
-    CPU cpu(&ram);
+    Cache cache(&ram, 8); // Cache pequena de 8 posições para forçar conflitos
+    CPU cpu(&cache);      // A CPU nem sabe que existe uma cache!
 
     std::cout << "[CPU] RESET signal high. Executando..." << std::endl;
     cpu.run();
