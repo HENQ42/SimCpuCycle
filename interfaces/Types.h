@@ -18,5 +18,9 @@ enum class InstructionType : uint8_t
     XOR = 0x06,   // Bitwise XOR
     SLT = 0x07,   // Set Less Than (Se ACC < Operando, ACC = 1, senão 0)
     JUMP = 0x08,  // Salto incondicional (necessário para loops)
-    JEQ = 0x09    // Jump Equal (Salto se ZeroFlag for true)
+    JEQ = 0x09,   // Jump Equal (Salto se ZeroFlag for true)
+    PUSH = 0x0A,  // Põe ACC na pilha
+    POP = 0x0B,   // Tira da pilha para ACC
+    CALL = 0x0C,  // Pula e salva PC na pilha
+    RET = 0x0D    // Retorna (Tira PC da pilha)
 };

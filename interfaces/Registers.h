@@ -17,6 +17,9 @@ private:
     bool zeroFlag;     // Z: True se o último resultado foi 0
     bool negativeFlag; // N: True se o último resultado foi negativo
 
+    // registrador stack pointer
+    Address sp;
+
 public:
     Registers()
     {
@@ -31,7 +34,20 @@ public:
         acc = 0;
         zeroFlag = false;
         negativeFlag = false;
+
+        // começa no fim da RAM
+        sp = 1023;
     }
+
+    // --- Métodos do SP ---
+    Address getSP() const { return sp; }
+    void setSP(Address val) { sp = val; }
+
+    // PUSH: Decrementa o ponteiro (cresce para baixo)
+    void decSP() { sp--; }
+
+    // POP: Incrementa o ponteiro (encolhe para cima)
+    void incSP() { sp++; }
 
     // --- Manipulação do PC ---
     Address getPC() const { return pc; }
@@ -73,6 +89,7 @@ public:
         std::cout << "PC:  " << std::dec << pc << std::endl;
         std::cout << "IR:  0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << ir << std::endl;
         std::cout << "ACC: " << std::dec << acc << " (0x" << std::hex << acc << ")" << std::endl;
+        std::cout << "SP:  " << std::dec << sp << std::endl;
         std::cout << "Flags: [Z: " << (zeroFlag ? "1" : "0") << "] [N: " << (negativeFlag ? "1" : "0") << "]" << std::endl;
         std::cout << "-----------------" << std::endl;
     }

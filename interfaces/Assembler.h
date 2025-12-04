@@ -26,6 +26,10 @@ public:
         opcodes["SLT"] = (Opcode)InstructionType::SLT;
         opcodes["JUMP"] = (Opcode)InstructionType::JUMP;
         opcodes["JEQ"] = (Opcode)InstructionType::JEQ;
+        opcodes["PUSH"] = (Opcode)InstructionType::PUSH;
+        opcodes["POP"] = (Opcode)InstructionType::POP;
+        opcodes["CALL"] = (Opcode)InstructionType::CALL;
+        opcodes["RET"] = (Opcode)InstructionType::RET;
     }
 
     std::string cleanLine(std::string line)

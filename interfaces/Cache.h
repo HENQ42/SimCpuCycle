@@ -2,80 +2,107 @@
 #include "IMemoryDevice.h"
 #include <vector>
 #include <iostream>
+#include <iomanip>
 
 struct CacheLine
 {
     bool valid = false;
     uint32_t tag = 0;
-    uint32_t data = 0;
+    std::vector<Word> dataBlock; // O Bloco de dados (ex: 4 palavras)
 };
 
 class Cache : public IMemoryDevice
 {
 private:
-    IMemoryDevice *ramReal; // A RAM lenta "atrás" da cache
+    IMemoryDevice *ramReal;
     std::vector<CacheLine> lines;
-    size_t size; // Tamanho da cache (ex: 16 posições)
+
+    size_t numLines;  // Quantas linhas a cache tem (ex: 8)
+    size_t blockSize; // Quantas palavras cabem numa linha (ex: 4)
 
 public:
-    // Injetamos a RAM real no construtor da Cache
-    Cache(IMemoryDevice *ram, size_t cacheSize = 16) : ramReal(ram), size(cacheSize)
+    Cache(IMemoryDevice *ram, size_t linesCount = 8, size_t wordsPerLine = 4)
+        : ramReal(ram), numLines(linesCount), blockSize(wordsPerLine)
     {
-        lines.resize(size);
+
+        // Inicializa as linhas com vetores vazios do tamanho correto
+        lines.resize(numLines);
+        for (auto &line : lines)
+        {
+            line.dataBlock.resize(blockSize, 0);
+        }
     }
 
     Word read(Address addr) const override
     {
-        // Mapeamento Direto Simples:
-        // Index = Endereço % Tamanho da Cache
-        // Tag = Endereço / Tamanho da Cache
-        uint32_t index = addr % size;
-        uint32_t tag = addr / size;
+        // --- MATEMÁTICA DE ENDEREÇAMENTO ---
+        // 1. Em qual bloco da memória universal este endereço está?
+        uint32_t blockAddr = addr / blockSize;
 
-        // O const_cast é um "mal necessário" aqui pois queremos atualizar a cache
-        // numa operação de leitura (que é marcada como const na interface),
-        // ou removemos o const da interface. Por simplicidade didática, vamos acessar direto:
+        // 2. Qual é o deslocamento (offset) dentro desse bloco? (0 a 3)
+        uint32_t offset = addr % blockSize;
+
+        // 3. Mapeamento Direto: Qual linha da cache cuida desse bloco?
+        uint32_t index = blockAddr % numLines;
+
+        // 4. Tag: Identificador único do bloco
+        uint32_t tag = blockAddr / numLines;
+
+        // Acesso à linha (const_cast para permitir update em read)
         CacheLine &line = const_cast<Cache *>(this)->lines[index];
 
+        // --- VERIFICAÇÃO (HIT/MISS) ---
         if (line.valid && line.tag == tag)
         {
-            // --- CACHE HIT ---
-            std::cout << "[CACHE HIT]  Addr: " << addr << std::endl;
-            return line.data;
+            // [HIT] O bloco inteiro já está aqui!
+            std::cout << "[CACHE HIT]  Addr: " << addr
+                      << " (Line: " << index << " | Offset: " << offset << ")" << std::endl;
+            return line.dataBlock[offset];
         }
         else
         {
-            // --- CACHE MISS ---
-            std::cout << "[CACHE MISS] Addr: " << addr << " -> Buscando na RAM..." << std::endl;
+            // [MISS] Precisamos buscar o BLOCO INTEIRO na RAM
+            std::cout << "[CACHE MISS] Addr: " << addr
+                      << " -> Buscando Bloco [" << (blockAddr * blockSize)
+                      << " a " << ((blockAddr * blockSize) + blockSize - 1) << "]..." << std::endl;
 
-            // Busca na RAM lenta
-            Word val = ramReal->read(addr);
+            // Endereço base do bloco na RAM
+            Address baseAddress = blockAddr * blockSize;
 
-            // Salva na Cache para a próxima vez
+            // Busca sequencial (Simula o Burst Mode da RAM)
+            for (size_t i = 0; i < blockSize; i++)
+            {
+                line.dataBlock[i] = ramReal->read(baseAddress + i);
+            }
+
+            // Atualiza Metadados
             line.valid = true;
             line.tag = tag;
-            line.data = val;
 
-            return val;
+            return line.dataBlock[offset];
         }
     }
 
     void write(Address addr, Word value) override
     {
-        // Política "Write-Through": Escreve na Cache E na RAM ao mesmo tempo
-        // para garantir que nada se perca.
+        // Write-Through: Escreve na RAM sempre, e atualiza Cache se houver Hit
 
-        uint32_t index = addr % size;
-        uint32_t tag = addr / size;
-
-        // Atualiza RAM
         ramReal->write(addr, value);
 
-        // Atualiza Cache
-        lines[index].valid = true;
-        lines[index].tag = tag;
-        lines[index].data = value;
+        uint32_t blockAddr = addr / blockSize;
+        uint32_t index = (blockAddr) % numLines;
+        uint32_t tag = blockAddr / numLines;
+        uint32_t offset = addr % blockSize;
 
-        std::cout << "[CACHE WRITE] Addr: " << addr << std::endl;
+        if (lines[index].valid && lines[index].tag == tag)
+        {
+            // Se o bloco está na cache, atualizamos a palavra específica nele
+            lines[index].dataBlock[offset] = value;
+            std::cout << "[CACHE UPDATE] Addr: " << addr << " (Write-Through)" << std::endl;
+        }
+        else
+        {
+            std::cout << "[CACHE BYPASS] Addr: " << addr << " (Write-Through)" << std::endl;
+        }
     }
 };

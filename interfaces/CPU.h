@@ -4,7 +4,7 @@
 #include "Registers.h"
 #include "ALU.h"
 #include "InstructionDecoder.h"
-#include "PIC.h" // <--- Importante: Incluir o PIC
+#include "PIC.h"
 #include <iostream>
 
 class CPU
@@ -13,33 +13,51 @@ private:
     Registers registers;
     ALU alu;
     IMemoryDevice *bus;
-    PIC *pic; // <--- Novo componente: Controlador de Interrupções
+    PIC *pic;
 
     bool halted;
 
 public:
-    // Atualizamos o construtor para receber o PIC
+    // Construtor com Injeção de Dependência
     CPU(IMemoryDevice *memoryBus, PIC *interruptController = nullptr)
         : bus(memoryBus), pic(interruptController), halted(false)
     {
         registers.reset();
     }
 
+    // --- Métodos Auxiliares de Pilha ---
+    void push(Word value)
+    {
+        // 1. Escreve no endereço atual do SP
+        bus->write(registers.getSP(), value);
+        // 2. Decrementa o SP (Pilha cresce para baixo: 1023 -> 1022)
+        registers.decSP();
+    }
+
+    Word pop()
+    {
+        // 1. Incrementa o SP (Volta para o último dado válido)
+        registers.incSP();
+        // 2. Lê o valor
+        return bus->read(registers.getSP());
+    }
+
+    // --- Ciclo Principal ---
     void step()
     {
         if (halted)
             return;
 
-        // 1. CHECAGEM DE INTERRUPÇÃO (Antes de buscar instrução)
+        // 1. CHECAGEM DE INTERRUPÇÃO
         checkInterrupts();
 
-        // 2. FETCH
+        // 2. FETCH (Busca)
         fetch();
 
-        // 3. DECODE
+        // 3. DECODE (Decodificação)
         DecodedInstruction decoded = decode();
 
-        // 4. EXECUTE
+        // 4. EXECUTE (Execução)
         execute(decoded);
     }
 
@@ -54,10 +72,9 @@ public:
     const Registers &getRegisters() const { return registers; }
 
 private:
-    // --- Lógica de Interrupção ---
+    // --- Tratamento de Interrupções ---
     void checkInterrupts()
     {
-        // Se não tiver PIC conectado ou não tiver interrupção pendente, segue o jogo.
         if (pic == nullptr || !pic->isPending())
             return;
 
@@ -65,26 +82,19 @@ private:
         uint8_t vector = pic->ackIRQ();
         std::cout << "[CPU] INTERRUPT DETECTED! Vector: " << (int)vector << std::endl;
 
-        // --- CONTEXT SWITCH (Troca de Contexto) ---
-        // Em hardware real, salvamos o PC atual na Pilha (Stack).
-        // Aqui, por simplicidade, vamos salvar num endereço fixo reservado (0x03FF)
-        // para sabermos onde voltar depois.
-        Address returnAddress = registers.getPC();
-        bus->write(0x03FF, returnAddress);
+        // --- CONTEXT SWITCH (Usando a Pilha) ---
+        // Agora salvamos o PC na pilha. Isso permite interrupções aninhadas.
+        push(registers.getPC());
 
-        // O Vetor de Interrupção define para onde pulamos.
-        // Vamos convencionar:
-        // IRQ 1 (Teclado) -> Pula para endereço 500 (Endereço do Driver de Teclado)
+        // Desvio baseado no vetor (Tabela de Vetores Simplificada)
         if (vector == 1)
         {
-            registers.setPC(500);
-            std::cout << "[CPU] Saltando para ISR no endereco 500 (PC salvo: " << returnAddress << ")" << std::endl;
+            registers.setPC(500); // Endereço do Driver de Teclado
+            std::cout << "[CPU] PUSH PC na Pilha. Saltando para ISR (500)." << std::endl;
         }
     }
 
-    // --- Métodos Originais (Fetch/Decode/Execute) ---
-    // (Mantenha o fetch, decode e execute exatamente como estavam antes)
-
+    // --- Estágios do Pipeline ---
     void fetch()
     {
         Address currentPC = registers.getPC();
@@ -108,13 +118,19 @@ private:
             return;
         }
 
+        // --- Pré-Busca de Operando ---
         int32_t operandValue = 0;
-        bool isStoreOrJump = (type == InstructionType::STORE ||
-                              type == InstructionType::JUMP ||
-                              type == InstructionType::JEQ);
 
-        if (!isStoreOrJump)
+        // Instruções que usam o operando como ENDEREÇO de destino (não buscam valor)
+        // Adicionado CALL aqui, pois ele funciona como um JUMP
+        bool isJumpLike = (type == InstructionType::STORE ||
+                           type == InstructionType::JUMP ||
+                           type == InstructionType::JEQ ||
+                           type == InstructionType::CALL);
+
+        if (!isJumpLike)
         {
+            // Para as demais (ADD, SUB, LOAD, etc.), resolvemos o valor
             if (instr.isAddressMode)
             {
                 operandValue = bus->read(instr.operand);
@@ -125,8 +141,10 @@ private:
             }
         }
 
+        // --- Execução da Instrução ---
         switch (type)
         {
+        // Operações Aritméticas/Lógicas (Usam a ULA)
         case InstructionType::ADD:
         case InstructionType::SUB:
         case InstructionType::AND:
@@ -138,16 +156,46 @@ private:
             registers.setACC(result);
         }
         break;
+
+        // Acesso à Memória
         case InstructionType::STORE:
             bus->write(instr.operand, registers.getACC());
             break;
+
+        // Controle de Fluxo Simples
         case InstructionType::JUMP:
             registers.setPC(instr.operand);
             break;
+
         case InstructionType::JEQ:
             if (registers.isZero())
                 registers.setPC(instr.operand);
             break;
+
+            // --- OPERAÇÕES DE PILHA (STACK) ---
+
+        case InstructionType::PUSH:
+            // Salva o ACC no topo da pilha
+            push(registers.getACC());
+            break;
+
+        case InstructionType::POP:
+            // Recupera do topo da pilha para o ACC
+            registers.setACC(pop());
+            break;
+
+        case InstructionType::CALL:
+            // 1. Salva o endereço de retorno (PC atual) na pilha
+            push(registers.getPC());
+            // 2. Pula para o endereço da função (operando)
+            registers.setPC(instr.operand);
+            break;
+
+        case InstructionType::RET:
+            // Recupera o endereço de retorno da pilha e joga no PC
+            registers.setPC(pop());
+            break;
+
         default:
             break;
         }
