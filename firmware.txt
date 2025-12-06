@@ -1,154 +1,125 @@
-; === FIBONACCI OS v3.0 (STABLE) ===
-; - Reseta Fibonacci se > 1000 para nao travar.
-; - 'l' funciona para mostrar texto digitado.
-; - 'f' mostra o numero atual.
+; === APRESENTACAO: SISTEMA DE EVENTOS ===
+; Objetivo: Demonstrar interrupcoes e I/O
+; 'l' -> Soma +1 ao contador e mostra no display
+; 'f' -> Mostra as letras digitadas (Flush)
+; 'z' -> Desliga o sistema
 
-; --- Inicializacao ---
-LOAD #1
-STORE 200   ; Fib(n-2)
-STORE 201   ; Fib(n-1)
+; --- INICIALIZACAO ---
+LOAD #0
+STORE 200   ; Variavel CONTADOR (Inicia em 0)
 
-; --- MAIN THREAD ---
+; --- MAIN THREAD (Loop Ocioso) ---
+; O processador fica preso aqui ate voce apertar algo.
+; Otimo para explicar que o processador nao precisa
+; ficar gastando energia calculando se nao ha input.
 MAIN_LOOP:
-    CALL CALC_FIB
-    CALL DELAY_FUNCTION
     JUMP MAIN_LOOP
 
-; --- CALCULO FIBONACCI ---
-CALC_FIB:
-    LOAD 201
-    ADD 200
-    STORE 202   ; Temp = Novo
-
-    ; VERIFICACAO DE SEGURANCA: Se > 1000, Reseta.
-    ; SLT retorna 1 se (Temp < 1000), 0 se maior/igual.
-    LOAD 202
-    SLT #1000
-    SUB #1      ; Se era 1 (true), vira 0. Se era 0 (false), vira -1.
-    JEQ ATUALIZAR_VARIAVEIS
-
-    ; Se chegou aqui, o numero estourou 1000. Reseta.
-    LOAD #1
-    STORE 200
-    STORE 201
-    RET
-
-ATUALIZAR_VARIAVEIS:
-    LOAD 201
-    STORE 200   ; Antigo2 = Antigo1
-    
-    LOAD 202
-    STORE 201   ; Antigo1 = Novo
-    RET
-
-; --- DELAY ---
-DELAY_FUNCTION:
-    LOAD #20    ; Velocidade
-    STORE 205
-DELAY_L:
-    LOAD 205
-    SUB #1
-    JEQ DELAY_EXIT
-    STORE 205
-    JUMP DELAY_L
-DELAY_EXIT:
-    RET
-
 ; ==========================================
-;       DRIVER DE TECLADO (ISR)
+;        DRIVER DE TECLADO (ISR)
 ; ==========================================
 ORG 500
 HANDLER:
-    PUSH        ; Salva contexto
+    PUSH            ; Salva o estado anterior
 
-    LOAD 61440  ; Limpa buffer teclado
-    STORE 100   ; TempKey
+    LOAD 61440      ; Le a tecla pressionada
+    STORE 100       ; Guarda em TempKey
 
-    ; Comandos
+    ; --- ROTEAMENTO DE EVENTOS ---
+    
+    ; Caso 1: Tecla 'l' (Load/Soma)
     LOAD 100
-    SUB #122    ; 'z'
+    SUB #108        ; 108 = 'l'
+    JEQ EVENTO_SOMAR
+
+    ; Caso 2: Tecla 'f' (Flush/Texto)
+    LOAD 100
+    SUB #102        ; 102 = 'f'
+    JEQ EVENTO_TEXTO
+
+    ; Caso 3: Tecla 'z' (Desligar)
+    LOAD 100
+    SUB #122        ; 122 = 'z'
     JEQ DESLIGAR
 
-    LOAD 100
-    SUB #102    ; 'f'
-    JEQ PRINT_NUMBER_ROUTINE
-
-    LOAD 100
-    SUB #108    ; 'l'
-    JEQ DO_FLUSH
-
-    ; --- CASO PADRAO (Conserto do 'l') ---
-    ; Se nao for comando, guarda no buffer do display
+    ; Caso Padrao: Apenas guarda a letra no buffer visual
     LOAD 100
     STORE 57344
     JUMP SAIR_ISR
 
-; ------------------------------------------
-; IMPRESSAO NUMERICA
-; ------------------------------------------
-PRINT_NUMBER_ROUTINE:
-    LOAD 201
-    STORE 300   ; Work Val
+; --- LOGICA DOS EVENTOS ---
 
-    ; Centenas
+EVENTO_TEXTO:
+    LOAD #1
+    STORE 57345     ; Dispara o FLUSH do display
+    JUMP SAIR_ISR
+
+EVENTO_SOMAR:
+    ; 1. Incrementa o Contador
+    LOAD 200
+    ADD #1
+    STORE 200
+    
+    ; 2. Prepara para imprimir (Move Contador para Work Val)
+    LOAD 200
+    STORE 300       ; 300 eh usado na rotina de impressao abaixo
+    
+    ; 3. Executa a conversao numerica (Centena/Dezena/Unidade)
+    ; (Mantivemos essa logica pois ela eh necessaria para ver o numero)
+    
+    ; -- Centenas --
     LOAD #0
     STORE 301
-LOOP_100:
+CALC_100:
     LOAD 300
     SLT #100
     SUB #1
-    JEQ FIM_100
+    JEQ PRINT_100
     LOAD 300
     SUB #100
     STORE 300
     LOAD 301
     ADD #1
     STORE 301
-    JUMP LOOP_100
-FIM_100:
+    JUMP CALC_100
+PRINT_100:
     LOAD 301
     ADD #48
     STORE 57344
 
-    ; Dezenas
+    ; -- Dezenas --
     LOAD #0
     STORE 301
-LOOP_10:
+CALC_10:
     LOAD 300
     SLT #10
     SUB #1
-    JEQ FIM_10
+    JEQ PRINT_10
     LOAD 300
     SUB #10
     STORE 300
     LOAD 301
     ADD #1
     STORE 301
-    JUMP LOOP_10
-FIM_10:
+    JUMP CALC_10
+PRINT_10:
     LOAD 301
     ADD #48
     STORE 57344
 
-    ; Unidades
+    ; -- Unidades --
     LOAD 300
     ADD #48
     STORE 57344
-    
-    ; Espaço
+
+    ; Espaço em branco e Flush automatico
     LOAD #32
     STORE 57344
-
-    ; Auto-Flush para o 'f'
     LOAD #1
     STORE 57345
     JUMP SAIR_ISR
 
-DO_FLUSH:
-    LOAD #1
-    STORE 57345
-    JUMP SAIR_ISR
-
+; --- SAIDA ---
 SAIR_ISR:
     POP
     RET
