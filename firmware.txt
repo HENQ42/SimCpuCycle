@@ -1,5 +1,3 @@
-; === APRESENTACAO: SISTEMA DE EVENTOS ===
-; Objetivo: Demonstrar interrupcoes e I/O
 ; 'l' -> Soma +1 ao contador e mostra no display
 ; 'f' -> Mostra as letras digitadas (Flush)
 ; 'z' -> Desliga o sistema
@@ -9,9 +7,6 @@ LOAD #0
 STORE 200   ; Variavel CONTADOR (Inicia em 0)
 
 ; --- MAIN THREAD (Loop Ocioso) ---
-; O processador fica preso aqui ate voce apertar algo.
-; Otimo para explicar que o processador nao precisa
-; ficar gastando energia calculando se nao ha input.
 MAIN_LOOP:
     JUMP MAIN_LOOP
 
@@ -126,3 +121,4 @@ SAIR_ISR:
 
 DESLIGAR:
     HALT
+    
